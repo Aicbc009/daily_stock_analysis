@@ -3,7 +3,7 @@
 
 from types import SimpleNamespace
 
-from src.analyzer import AnalysisResult, stabilize_decision_with_structure
+from src.analyzer import AnalysisResult, _capital_flow_bias, stabilize_decision_with_structure
 
 
 def _result(
@@ -50,6 +50,27 @@ def _fund_flow(main: float, five_day: float = 0.0, ten_day: float = 0.0) -> dict
             },
         }
     }
+
+
+def test_capital_flow_bias_is_neutral_when_missing_main_windows_conflict() -> None:
+    context = {
+        "capital_flow": {
+            "data": {
+                "stock_flow": {
+                    "inflow_5d": 2_000_000,
+                    "inflow_10d": -1_000_000,
+                }
+            }
+        }
+    }
+
+    assert _capital_flow_bias(context) == "neutral"
+
+
+def test_capital_flow_bias_is_neutral_when_main_conflicts_with_windows() -> None:
+    context = _fund_flow(main=-500_000, five_day=1_200_000, ten_day=2_000_000)
+
+    assert _capital_flow_bias(context) == "neutral"
 
 
 def test_downgrades_buy_near_resistance_without_fund_confirmation() -> None:

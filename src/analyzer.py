@@ -816,24 +816,23 @@ def _capital_flow_bias(fundamental_context: Optional[Dict[str, Any]]) -> str:
     stock_flow = data.get("stock_flow") if isinstance(data, dict) else None
     if not isinstance(stock_flow, dict):
         return "neutral"
-    values = [
-        _coerce_numeric_value(stock_flow.get("main_net_inflow")),
-        _coerce_numeric_value(stock_flow.get("inflow_5d")),
-        _coerce_numeric_value(stock_flow.get("inflow_10d")),
+
+    def _flow_direction(value: Optional[float]) -> Optional[str]:
+        if value is None or value == 0:
+            return None
+        return "inflow" if value > 0 else "outflow"
+
+    ordered_signals = [
+        _flow_direction(_coerce_numeric_value(stock_flow.get("main_net_inflow"))),
+        _flow_direction(_coerce_numeric_value(stock_flow.get("inflow_5d"))),
+        _flow_direction(_coerce_numeric_value(stock_flow.get("inflow_10d"))),
     ]
-    values = [value for value in values if value is not None]
-    if not values:
+    directions = {signal for signal in ordered_signals if signal is not None}
+    if not directions or len(directions) > 1:
         return "neutral"
-    main_value = values[0]
-    total = sum(values)
-    if main_value < 0 and total <= 0:
-        return "outflow"
-    if main_value > 0 and total >= 0:
-        return "inflow"
-    if total > 0:
-        return "inflow"
-    if total < 0:
-        return "outflow"
+    for signal in ordered_signals:
+        if signal is not None:
+            return signal
     return "neutral"
 
 
