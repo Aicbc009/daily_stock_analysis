@@ -184,6 +184,7 @@ Default schedule: Every weekday at **18:00 (Beijing Time)** automatic execution.
 ### AI Model Configuration
 
 > Full details: [LLM Config Guide](LLM_CONFIG_GUIDE_EN.md) (three-tier config, channels, Vision, Agent, troubleshooting).
+> Compatibility note for Issue #1306: this change only persists and exposes existing market-review output via history paths, and does not alter model name, provider, base URL, LiteLLM cleanup rules, or `.env` runtime migration semantics. Rollback is to revert this change set. Runtime compatibility references are `requirements.txt` (`litellm` constraints), `docs/LLM_CONFIG_GUIDE_EN.md`, and regression tests in `tests/test_analysis_api_contract.py`, `tests/test_analysis_history.py`, `tests/test_market_review.py`; official references: [LiteLLM OpenAI-compatible](https://docs.litellm.ai/docs/providers/openai_compatible), [OpenAI Chat Completion API](https://platform.openai.com/docs/api-reference/chat).
 
 | Variable | Description | Default | Required |
 |--------|------|--------|:----:|

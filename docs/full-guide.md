@@ -208,6 +208,7 @@ daily_stock_analysis/
 ### AI 模型配置
 
 > 完整说明见 [LLM 配置指南](LLM_CONFIG_GUIDE.md)（三层配置、渠道模式、Vision、Agent、排错）；常用服务商预设、Actions 变量对照和错误排障见 [LLM 服务商配置指南](llm-providers.md)。
+> 兼容性说明（Issue #1306）：本次改动只复用已有历史写入链路展示大盘复盘结果，不修改模型名、provider、Base URL、`LiteLLM` 清理/兼容语义。回退路径为回滚本版本。兼容验证来源见 `requirements.txt`（`litellm` 版本约束）、`docs/LLM_CONFIG_GUIDE*.md`，以及回归用例 `tests/test_analysis_api_contract.py`、`tests/test_analysis_history.py`、`tests/test_market_review.py`；官方源参考：[LiteLLM OpenAI-compatible](https://docs.litellm.ai/docs/providers/openai_compatible)、[OpenAI Chat Completion API](https://platform.openai.com/docs/api-reference/chat)。
 > 本节仅同步模型/渠道配置清单，不额外引入新的外部 provider / Base URL 兼容约定；兼容语义以当前仓库 `requirements.txt` 依赖约束和相关测试为准，历史回退路径见上述两份文档中“回退/恢复”说明。
 
 | 变量名 | 说明 | 默认值 | 必填 |
