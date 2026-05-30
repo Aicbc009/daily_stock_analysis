@@ -11,6 +11,8 @@ ALPHASIFT_ENABLED=true
 ALPHASIFT_INSTALL_SPEC=git+https://github.com/ZhuLinsen/alphasift.git@2c76b2b6074ae3bae01d52e5e830a4af3e3246b2
 ```
 
+对应 commit 固定来源：<https://github.com/ZhuLinsen/alphasift/commit/2c76b2b6074ae3bae01d52e5e830a4af3e3246b2>
+
 也可以在 Web 设置页的 AlphaSift 选股卡片中点击“开启选股”，该操作会写入
 `ALPHASIFT_ENABLED=true`、重新加载运行时配置，并按 `ALPHASIFT_INSTALL_SPEC`
 执行一次自动安装或可用性检查。
@@ -43,6 +45,20 @@ alphasift.screen(strategy, market=market, max_output=max_results, use_llm=False)
 - `alphasift.screen` 必须使用固定签名 `screen(strategy, market=..., max_output=..., use_llm=False)` 调用。
 
 当前自动化环境不执行联网安装与运行时真库验收；若需线上复核，请在可访问目标提交的同一 Python 环境手动完成 `pip install` 并访问 `/api/v1/alphasift/screen`，确认上述签名仍可成功执行。
+
+本地复核建议（同一 Python 环境）：
+
+```bash
+python -m pip install --upgrade "git+https://github.com/ZhuLinsen/alphasift.git@2c76b2b6074ae3bae01d52e5e830a4af3e3246b2"
+python -m pytest tests/test_alphasift_api.py -q
+python - <<'PY'
+import importlib
+
+alphasift = importlib.import_module("alphasift.dsa_adapter")
+sig = alphasift.screen
+print(f"adapter callable: {sig}")
+PY
+```
 
 若 AlphaSift 接口不兼容或自动安装失败，可将 `ALPHASIFT_ENABLED=false` 回退为关闭状态；已手动安装的包由运行环境自行管理。
 
