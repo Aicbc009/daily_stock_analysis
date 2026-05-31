@@ -2,7 +2,7 @@ import type React from 'react';
 import { useEffect, useRef, useState } from 'react';
 import { useAuth, useSystemConfig } from '../hooks';
 import { createParsedApiError, getParsedApiError, type ParsedApiError } from '../api/error';
-import { alphasiftApi, notifyAlphaSiftConfigChanged } from '../api/alphasift';
+import { alphasiftApi, notifyAlphaSiftConfigChanged, notifySystemConfigChanged } from '../api/alphasift';
 import { systemConfigApi } from '../api/systemConfig';
 import { ApiErrorAlert, Button, ConfirmDialog, EmptyState } from '../components/common';
 import {
@@ -200,12 +200,14 @@ function formatEnvBackupFilename(isDesktopRuntime: boolean) {
   return `${isDesktopRuntime ? 'dsa-desktop-env' : 'dsa-env'}_${date}_${time}.env`;
 }
 
-const TRUSTED_ALPHASIFT_INSTALL_SPEC = 'git+https://github.com/ZhuLinsen/alphasift.git@2c76b2b6074ae3bae01d52e5e830a4af3e3246b2';
+const TRUSTED_ALPHASIFT_INSTALL_SPEC = 'git+https://github.com/ZhuLinsen/alphasift.git@b2ca66dd47001b9a09890cfe21c2b18c7219ccf5';
 
 const SettingsPage: React.FC = () => {
   const { authEnabled, passwordChangeable } = useAuth();
   const [envBackupActionError, setEnvBackupActionError] = useState<ParsedApiError | null>(null);
   const [envBackupActionSuccess, setEnvBackupActionSuccess] = useState<string>('');
+  const [alphaSiftActionError, setAlphaSiftActionError] = useState<ParsedApiError | null>(null);
+  const [alphaSiftActionSuccess, setAlphaSiftActionSuccess] = useState<string>('');
   const [isExportingEnv, setIsExportingEnv] = useState(false);
   const [isImportingEnv, setIsImportingEnv] = useState(false);
   const [isUpdatingAlphaSift, setIsUpdatingAlphaSift] = useState(false);
@@ -444,6 +446,7 @@ const SettingsPage: React.FC = () => {
         }));
         return;
       }
+      notifySystemConfigChanged();
       setEnvBackupActionSuccess('已导入 .env 备份并重新加载配置。');
     } catch (error: unknown) {
       setEnvBackupActionError(getParsedApiError(error));
@@ -478,21 +481,14 @@ const SettingsPage: React.FC = () => {
   };
 
   const updateAlphaSiftEnabled = async (nextEnabled: boolean) => {
-    setEnvBackupActionError(null);
-    setEnvBackupActionSuccess('');
+    setAlphaSiftActionError(null);
+    setAlphaSiftActionSuccess('');
     setIsUpdatingAlphaSift(true);
     try {
       if (nextEnabled) {
-        await systemConfigApi.update({
-          configVersion,
-          maskToken,
-          reloadNow: true,
-          items: [{ key: 'ALPHASIFT_ENABLED', value: 'true' }],
-        });
-        notifyAlphaSiftConfigChanged();
+        await alphasiftApi.enable();
         await refreshAfterExternalSave(['ALPHASIFT_ENABLED']);
-        await alphasiftApi.install();
-        setEnvBackupActionSuccess('已开启 AlphaSift 选股，并完成依赖检查。');
+        setAlphaSiftActionSuccess('已开启 AlphaSift 选股，并完成依赖检查。');
         return;
       }
 
@@ -504,9 +500,10 @@ const SettingsPage: React.FC = () => {
       });
       notifyAlphaSiftConfigChanged();
       await refreshAfterExternalSave(['ALPHASIFT_ENABLED']);
-      setEnvBackupActionSuccess('已关闭 AlphaSift 选股。');
+      setAlphaSiftActionSuccess('已关闭 AlphaSift 选股。');
     } catch (error: unknown) {
-      setEnvBackupActionError(getParsedApiError(error));
+      setAlphaSiftActionError(getParsedApiError(error));
+      await refreshAfterExternalSave(['ALPHASIFT_ENABLED']);
     } finally {
       setIsUpdatingAlphaSift(false);
     }
@@ -516,22 +513,30 @@ const SettingsPage: React.FC = () => {
     const changedItems = getChangedItems();
     const changedAlphaSiftItem = changedItems.find((item) => item.key === 'ALPHASIFT_ENABLED');
     const result = await save();
-    if (!result.success || !changedAlphaSiftItem) {
+    if (!result.success) {
+      return;
+    }
+    notifySystemConfigChanged();
+    if (!changedAlphaSiftItem) {
       return;
     }
 
+    setAlphaSiftActionError(null);
+    setAlphaSiftActionSuccess('');
     try {
       const isAlphaSiftEnabled = changedAlphaSiftItem.value.trim().toLowerCase() === 'true';
-      notifyAlphaSiftConfigChanged();
       if (isAlphaSiftEnabled) {
-        await alphasiftApi.install();
-        setEnvBackupActionSuccess('已开启 AlphaSift 选股，并完成依赖检查。');
+        await alphasiftApi.enable();
+        await refreshAfterExternalSave(['ALPHASIFT_ENABLED']);
+        setAlphaSiftActionSuccess('已开启 AlphaSift 选股，并完成依赖检查。');
         return;
       }
 
-      setEnvBackupActionSuccess('已关闭 AlphaSift 选股。');
+      notifyAlphaSiftConfigChanged();
+      setAlphaSiftActionSuccess('已关闭 AlphaSift 选股。');
     } catch (error: unknown) {
-      setEnvBackupActionError(getParsedApiError(error));
+      setAlphaSiftActionError(getParsedApiError(error));
+      await refreshAfterExternalSave(['ALPHASIFT_ENABLED']);
     }
   };
 
@@ -719,14 +724,14 @@ const SettingsPage: React.FC = () => {
                     </Button>
                   </div>
                 </div>
-                {envBackupActionError ? (
+                {alphaSiftActionError ? (
                   <div className="mt-3">
-                    <ApiErrorAlert error={envBackupActionError} />
+                    <ApiErrorAlert error={alphaSiftActionError} />
                   </div>
                 ) : null}
-                {!envBackupActionError && envBackupActionSuccess ? (
+                {!alphaSiftActionError && alphaSiftActionSuccess ? (
                   <div className="mt-3">
-                    <SettingsAlert title="操作成功" message={envBackupActionSuccess} variant="success" />
+                    <SettingsAlert title="操作成功" message={alphaSiftActionSuccess} variant="success" />
                   </div>
                 ) : null}
               </SettingsSectionCard>

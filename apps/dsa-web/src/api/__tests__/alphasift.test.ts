@@ -30,9 +30,16 @@ describe('alphasiftApi', () => {
     updateConfig.mockReset();
   });
 
-  it('enables the config before calling install', async () => {
+  it('enables the config before calling install when AlphaSift is missing', async () => {
     getConfig.mockResolvedValueOnce({ configVersion: 'v1', maskToken: '******' });
     updateConfig.mockResolvedValueOnce({ success: true });
+    get.mockResolvedValueOnce({
+      data: {
+        enabled: true,
+        available: false,
+        install_spec_is_default: true,
+      },
+    });
     post.mockResolvedValueOnce({
       data: {
         installed: true,
@@ -49,13 +56,21 @@ describe('alphasiftApi', () => {
       reloadNow: true,
       items: [{ key: 'ALPHASIFT_ENABLED', value: 'true' }],
     });
-    expect(post).toHaveBeenCalledWith('/api/v1/alphasift/install', {}, { timeout: 180000 });
+    expect(get).toHaveBeenCalledWith('/api/v1/alphasift/status');
+    expect(post).toHaveBeenCalledWith('/api/v1/alphasift/install', {}, { timeout: 300000 });
     expect(updateConfig.mock.invocationCallOrder[0]).toBeLessThan(post.mock.invocationCallOrder[0]);
   });
 
   it('keeps enable ordering when called without object binding', async () => {
     getConfig.mockResolvedValueOnce({ configVersion: 'v1', maskToken: '******' });
     updateConfig.mockResolvedValueOnce({ success: true });
+    get.mockResolvedValueOnce({
+      data: {
+        enabled: true,
+        available: false,
+        install_spec_is_default: true,
+      },
+    });
     post.mockResolvedValueOnce({
       data: {
         installed: true,
@@ -68,6 +83,53 @@ describe('alphasiftApi', () => {
     await enable();
 
     expect(updateConfig.mock.invocationCallOrder[0]).toBeLessThan(post.mock.invocationCallOrder[0]);
+  });
+
+  it('skips install when AlphaSift is already available after enabling', async () => {
+    getConfig.mockResolvedValueOnce({ configVersion: 'v1', maskToken: '******' });
+    updateConfig.mockResolvedValueOnce({ success: true });
+    get.mockResolvedValueOnce({
+      data: {
+        enabled: true,
+        available: true,
+        install_spec_is_default: true,
+      },
+    });
+
+    await alphasiftApi.enable();
+
+    expect(updateConfig).toHaveBeenCalledTimes(1);
+    expect(post).not.toHaveBeenCalled();
+  });
+
+  it('rolls back ALPHASIFT_ENABLED when install fails after enabling', async () => {
+    getConfig
+      .mockResolvedValueOnce({ configVersion: 'v1', maskToken: '******' })
+      .mockResolvedValueOnce({ configVersion: 'v2', maskToken: '******' });
+    updateConfig.mockResolvedValue({ success: true });
+    get.mockResolvedValueOnce({
+      data: {
+        enabled: true,
+        available: false,
+        install_spec_is_default: true,
+      },
+    });
+    post.mockRejectedValueOnce(new Error('install failed'));
+
+    await expect(alphasiftApi.enable()).rejects.toThrow('install failed');
+
+    expect(updateConfig).toHaveBeenNthCalledWith(1, {
+      configVersion: 'v1',
+      maskToken: '******',
+      reloadNow: true,
+      items: [{ key: 'ALPHASIFT_ENABLED', value: 'true' }],
+    });
+    expect(updateConfig).toHaveBeenNthCalledWith(2, {
+      configVersion: 'v2',
+      maskToken: '******',
+      reloadNow: true,
+      items: [{ key: 'ALPHASIFT_ENABLED', value: 'false' }],
+    });
   });
 
   it('loads strategies from the AlphaSift API', async () => {

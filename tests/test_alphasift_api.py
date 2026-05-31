@@ -172,6 +172,38 @@ class AlphaSiftOpportunitiesApiTestCase(unittest.TestCase):
         import_mock.assert_not_called()
         run_mock.assert_not_called()
 
+    def test_install_dependency_requires_admin_auth_enabled(self) -> None:
+        request = SimpleNamespace(cookies={})
+
+        with patch("api.v1.endpoints.alphasift.is_auth_enabled", return_value=False):
+            with self.assertRaises(HTTPException) as caught:
+                alphasift_endpoint._require_admin_session_for_install(request)
+
+        self.assertEqual(caught.exception.status_code, 403)
+        self.assertEqual(caught.exception.detail["error"], "alphasift_install_auth_required")
+
+    def test_install_dependency_requires_valid_admin_session(self) -> None:
+        request = SimpleNamespace(cookies={"dsa_session": "session-token"})
+
+        with (
+            patch("api.v1.endpoints.alphasift.is_auth_enabled", return_value=True),
+            patch("api.v1.endpoints.alphasift.verify_session", return_value=False),
+        ):
+            with self.assertRaises(HTTPException) as caught:
+                alphasift_endpoint._require_admin_session_for_install(request)
+
+        self.assertEqual(caught.exception.status_code, 401)
+        self.assertEqual(caught.exception.detail["error"], "alphasift_install_unauthorized")
+
+    def test_install_dependency_accepts_valid_admin_session(self) -> None:
+        request = SimpleNamespace(cookies={"dsa_session": "session-token"})
+
+        with (
+            patch("api.v1.endpoints.alphasift.is_auth_enabled", return_value=True),
+            patch("api.v1.endpoints.alphasift.verify_session", return_value=True),
+        ):
+            alphasift_endpoint._require_admin_session_for_install(request)
+
     def test_install_invokes_pip_when_enabled_and_missing(self) -> None:
         config = self._config(enabled=True)
         completed = SimpleNamespace(returncode=0, stdout="installed", stderr="")

@@ -59,10 +59,11 @@ async def _run_sync_via_asyncio_to_thread(
             stacklevel=2,
         )
     future: concurrent.futures.Future[T] = concurrent.futures.Future()
+    context = copy_context()
 
     def runner() -> None:
         try:
-            future.set_result(func(*args))
+            future.set_result(context.run(func, *args))
         except BaseException as exc:
             future.set_exception(exc)
 
@@ -143,16 +144,32 @@ class _ThreadlessTestClient:
         self.cookies = httpx.Cookies()
         self._lifespan_ctx = None
         self._lifespan_enter_count = 0
+        self._loop: asyncio.AbstractEventLoop | None = None
+        self._async_client: httpx.AsyncClient | None = None
 
     def _get_lifespan_context(self):
         return getattr(getattr(self.app, "router", None), "lifespan_context", None)
 
-    def __enter__(self):
-        lifespan_context = self._get_lifespan_context()
-        if self._lifespan_enter_count == 0 and callable(lifespan_context):
-            self._lifespan_ctx = lifespan_context(self.app)
-            asyncio.run(self._lifespan_ctx.__aenter__())
+    def _build_async_client(self, follow_redirects: bool) -> httpx.AsyncClient:
+        transport = httpx.ASGITransport(
+            app=self.app,
+            raise_app_exceptions=self.raise_server_exceptions,
+        )
+        return httpx.AsyncClient(
+            transport=transport,
+            base_url=self.base_url,
+            follow_redirects=follow_redirects,
+            cookies=self.cookies,
+        )
 
+    def __enter__(self):
+        if self._lifespan_enter_count == 0:
+            self._loop = asyncio.new_event_loop()
+            lifespan_context = self._get_lifespan_context()
+            if callable(lifespan_context):
+                self._lifespan_ctx = lifespan_context(self.app)
+                self._loop.run_until_complete(self._lifespan_ctx.__aenter__())
+            self._async_client = self._build_async_client(self.follow_redirects)
         self._lifespan_enter_count += 1
         return self
 
@@ -161,39 +178,35 @@ class _ThreadlessTestClient:
             return None
 
         self._lifespan_enter_count -= 1
-        if self._lifespan_enter_count == 0 and self._lifespan_ctx is not None:
+        if self._lifespan_enter_count == 0 and self._loop is not None:
             try:
-                asyncio.run(self._lifespan_ctx.__aexit__(*args))
+                async def _close() -> None:
+                    if self._async_client is not None:
+                        await self._async_client.aclose()
+                    if self._lifespan_ctx is not None:
+                        await self._lifespan_ctx.__aexit__(*args)
+
+                self._loop.run_until_complete(_close())
             finally:
                 self._lifespan_ctx = None
+                self._async_client = None
+                self._loop.close()
+                self._loop = None
         return None
 
     def request(self, method: str, url: str, **kwargs: Any) -> httpx.Response:
         follow_redirects = kwargs.pop("follow_redirects", self.follow_redirects)
         kwargs.pop("allow_redirects", None)
 
-        async def _send() -> httpx.Response:
-            transport = httpx.ASGITransport(
-                app=self.app,
-                raise_app_exceptions=self.raise_server_exceptions,
+        if self._lifespan_enter_count > 0 and self._loop is not None and self._async_client is not None:
+            response = self._loop.run_until_complete(
+                self._async_client.request(method, url, follow_redirects=follow_redirects, **kwargs)
             )
-            if self._lifespan_enter_count > 0:
-                async with httpx.AsyncClient(
-                    transport=transport,
-                    base_url=self.base_url,
-                    follow_redirects=follow_redirects,
-                    cookies=self.cookies,
-                ) as client:
-                    response = await client.request(method, url, **kwargs)
-                    self.cookies = httpx.Cookies(client.cookies)
-                    return response
+            self.cookies = httpx.Cookies(self._async_client.cookies)
+            return response
 
-            async with httpx.AsyncClient(
-                transport=transport,
-                base_url=self.base_url,
-                follow_redirects=follow_redirects,
-                cookies=self.cookies,
-            ) as client:
+        async def _send() -> httpx.Response:
+            async with self._build_async_client(follow_redirects) as client:
                 response = await client.request(method, url, **kwargs)
                 self.cookies = httpx.Cookies(client.cookies)
                 return response

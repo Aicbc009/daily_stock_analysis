@@ -8,8 +8,10 @@ const {
   exportEnv,
   importEnv,
   updateSystemConfig,
+  alphasiftEnable,
   alphasiftInstall,
   notifyAlphaSiftConfigChanged,
+  notifySystemConfigChanged,
   desktopCheckForUpdates,
   desktopGetUpdateState,
   desktopInstallDownloadedUpdate,
@@ -33,8 +35,10 @@ const {
   exportEnv: vi.fn(),
   importEnv: vi.fn(),
   updateSystemConfig: vi.fn(),
+  alphasiftEnable: vi.fn(),
   alphasiftInstall: vi.fn(),
   notifyAlphaSiftConfigChanged: vi.fn(),
+  notifySystemConfigChanged: vi.fn(),
   desktopCheckForUpdates: vi.fn(),
   desktopGetUpdateState: vi.fn(),
   desktopInstallDownloadedUpdate: vi.fn(),
@@ -79,9 +83,11 @@ vi.mock('../../api/systemConfig', () => ({
 
 vi.mock('../../api/alphasift', () => ({
   alphasiftApi: {
+    enable: (...args: unknown[]) => alphasiftEnable(...args),
     install: (...args: unknown[]) => alphasiftInstall(...args),
   },
   notifyAlphaSiftConfigChanged: (...args: unknown[]) => notifyAlphaSiftConfigChanged(...args),
+  notifySystemConfigChanged: (...args: unknown[]) => notifySystemConfigChanged(...args),
 }));
 
 vi.mock('../../utils/constants', async () => {
@@ -435,6 +441,7 @@ describe('SettingsPage', () => {
       alreadyInstalled: true,
       installSpecIsDefault: true,
     });
+    alphasiftEnable.mockResolvedValue(undefined);
     desktopGetUpdateState.mockResolvedValue({
       status: 'idle',
       currentVersion: '3.12.0',
@@ -799,10 +806,12 @@ describe('SettingsPage', () => {
 
     await waitFor(() => expect(save).toHaveBeenCalledTimes(1));
     expect(notifyAlphaSiftConfigChanged).toHaveBeenCalledTimes(1);
+    expect(notifySystemConfigChanged).toHaveBeenCalledTimes(1);
+    expect(alphasiftEnable).not.toHaveBeenCalled();
     expect(alphasiftInstall).not.toHaveBeenCalled();
   });
 
-  it('notifies alphasift status update and triggers install after generic save when ALPHASIFT_ENABLED is set true', async () => {
+  it('runs the AlphaSift enable flow after generic save when ALPHASIFT_ENABLED is set true', async () => {
     save.mockResolvedValue({ success: true });
     getChangedItems.mockReturnValue([{ key: 'ALPHASIFT_ENABLED', value: 'true' }]);
 
@@ -817,8 +826,10 @@ describe('SettingsPage', () => {
     fireEvent.click(screen.getByRole('button', { name: /保存配置/ }));
 
     await waitFor(() => expect(save).toHaveBeenCalledTimes(1));
-    expect(notifyAlphaSiftConfigChanged).toHaveBeenCalledTimes(1);
-    expect(alphasiftInstall).toHaveBeenCalledTimes(1);
+    expect(notifySystemConfigChanged).toHaveBeenCalledTimes(1);
+    expect(alphasiftEnable).toHaveBeenCalledTimes(1);
+    expect(alphasiftInstall).not.toHaveBeenCalled();
+    expect(refreshAfterExternalSave).toHaveBeenCalledWith(['ALPHASIFT_ENABLED']);
   });
 
   it('does not notify alphasift status when generic save updates other fields', async () => {
@@ -834,10 +845,11 @@ describe('SettingsPage', () => {
     fireEvent.click(screen.getByRole('button', { name: /保存配置/ }));
 
     await waitFor(() => expect(save).toHaveBeenCalledTimes(1));
+    expect(notifySystemConfigChanged).toHaveBeenCalledTimes(1);
     expect(notifyAlphaSiftConfigChanged).not.toHaveBeenCalled();
   });
 
-  it('persists AlphaSift enabled before running the install check', async () => {
+  it('runs AlphaSift enable flow from the settings card', async () => {
     const configState = buildSystemConfigState();
     useSystemConfigMock.mockReturnValue(buildSystemConfigState({
       itemsByCategory: {
@@ -887,17 +899,9 @@ describe('SettingsPage', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '开启选股' }));
 
-    await waitFor(() => expect(updateSystemConfig).toHaveBeenCalledWith({
-      configVersion: 'v1',
-      maskToken: '******',
-      reloadNow: true,
-      items: [{ key: 'ALPHASIFT_ENABLED', value: 'true' }],
-    }));
-    await waitFor(() => expect(alphasiftInstall).toHaveBeenCalledTimes(1));
-    expect(updateSystemConfig.mock.invocationCallOrder[0]).toBeLessThan(
-      alphasiftInstall.mock.invocationCallOrder[0]
-    );
-    expect(notifyAlphaSiftConfigChanged).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(alphasiftEnable).toHaveBeenCalledTimes(1));
+    expect(updateSystemConfig).not.toHaveBeenCalled();
+    expect(alphasiftInstall).not.toHaveBeenCalled();
     expect(refreshAfterExternalSave).toHaveBeenCalledWith(['ALPHASIFT_ENABLED']);
   });
 
@@ -954,9 +958,9 @@ describe('SettingsPage', () => {
     expect(screen.queryByText(privateInstallSpec)).not.toBeInTheDocument();
   });
 
-  it('does not run AlphaSift install when enabling the config fails', async () => {
+  it('refreshes AlphaSift state when the enable flow fails', async () => {
     const configState = buildSystemConfigState();
-    updateSystemConfig.mockRejectedValueOnce(new Error('config update failed'));
+    alphasiftEnable.mockRejectedValueOnce(new Error('config update failed'));
     useSystemConfigMock.mockReturnValue(buildSystemConfigState({
       itemsByCategory: {
         ...configState.itemsByCategory,
@@ -987,9 +991,10 @@ describe('SettingsPage', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '开启选股' }));
 
-    await waitFor(() => expect(updateSystemConfig).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(alphasiftEnable).toHaveBeenCalledTimes(1));
+    expect(updateSystemConfig).not.toHaveBeenCalled();
     expect(alphasiftInstall).not.toHaveBeenCalled();
-    expect(refreshAfterExternalSave).not.toHaveBeenCalledWith(['ALPHASIFT_ENABLED']);
+    expect(refreshAfterExternalSave).toHaveBeenCalledWith(['ALPHASIFT_ENABLED']);
   });
 
   it('passes LLM channel support keys to the channel editor without rendering them as generic fields', async () => {

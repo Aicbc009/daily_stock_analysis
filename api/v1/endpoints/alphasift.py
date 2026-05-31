@@ -11,11 +11,12 @@ import sys
 from dataclasses import asdict, is_dataclass
 from typing import Any, Dict, List
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from api.deps import get_config_dep
 from src.config import Config, DEFAULT_ALPHASIFT_INSTALL_SPEC
+from src.auth import COOKIE_NAME, is_auth_enabled, verify_session
 
 router = APIRouter()
 
@@ -73,8 +74,32 @@ def alphasift_strategies(config: Config = Depends(get_config_dep)) -> Dict[str, 
     }
 
 
+def _require_admin_session_for_install(request: Request) -> None:
+    if not is_auth_enabled():
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "error": "alphasift_install_auth_required",
+                "message": "自动安装 AlphaSift 需要先开启 ADMIN_AUTH_ENABLED 并完成管理员登录。",
+            },
+        )
+
+    session = request.cookies.get(COOKIE_NAME, "")
+    if not verify_session(session):
+        raise HTTPException(
+            status_code=401,
+            detail={
+                "error": "alphasift_install_unauthorized",
+                "message": "自动安装 AlphaSift 需要有效的管理员会话。",
+            },
+        )
+
+
 @router.post("/install")
-def alphasift_install(config: Config = Depends(get_config_dep)) -> Dict[str, Any]:
+def alphasift_install(
+    config: Config = Depends(get_config_dep),
+    _: None = Depends(_require_admin_session_for_install),
+) -> Dict[str, Any]:
     _ensure_alphasift_enabled(config)
     return _install_alphasift(config)
 

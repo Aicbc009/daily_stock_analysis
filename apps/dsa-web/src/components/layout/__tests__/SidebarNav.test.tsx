@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { describe, expect, it, vi } from 'vitest';
 import { SidebarNav } from '../SidebarNav';
@@ -24,6 +24,8 @@ vi.mock('../../../stores/agentChatStore', () => ({
 }));
 
 vi.mock('../../../api/alphasift', () => ({
+  ALPHASIFT_CONFIG_CHANGED_EVENT: 'alphasift-config-changed',
+  SYSTEM_CONFIG_CHANGED_EVENT: 'dsa-system-config-changed',
   alphasiftApi: {
     getStatus: () => mockGetAlphaSiftStatus(),
   },
@@ -56,6 +58,24 @@ describe('SidebarNav', () => {
     );
 
     expect(await screen.findByRole('link', { name: '选股' })).toHaveAttribute('href', '/screening');
+  });
+
+  it('refreshes the screening navigation item after any config save event', async () => {
+    mockGetAlphaSiftStatus
+      .mockResolvedValueOnce({ enabled: false, available: false, installSpecIsDefault: false })
+      .mockResolvedValueOnce({ enabled: true, available: false, installSpecIsDefault: false });
+
+    render(
+      <MemoryRouter initialEntries={['/']}>
+        <SidebarNav />
+      </MemoryRouter>,
+    );
+
+    expect(screen.queryByRole('link', { name: '选股' })).not.toBeInTheDocument();
+    window.dispatchEvent(new Event('dsa-system-config-changed'));
+
+    expect(await screen.findByRole('link', { name: '选股' })).toHaveAttribute('href', '/screening');
+    await waitFor(() => expect(mockGetAlphaSiftStatus.mock.calls.length).toBeGreaterThanOrEqual(2));
   });
 
   it('shows the shared completion badge only when chat completion is pending', () => {

@@ -3,7 +3,9 @@ import { systemConfigApi } from './systemConfig';
 import { toCamelCase } from './utils';
 
 const ALPHASIFT_SCREEN_TIMEOUT_MS = 180000;
-const ALPHASIFT_INSTALL_TIMEOUT_MS = 180000;
+const ALPHASIFT_INSTALL_TIMEOUT_MS = 300000;
+export const ALPHASIFT_CONFIG_CHANGED_EVENT = 'alphasift-config-changed';
+export const SYSTEM_CONFIG_CHANGED_EVENT = 'dsa-system-config-changed';
 
 export type AlphaSiftStatus = {
   enabled: boolean;
@@ -89,7 +91,23 @@ export type AlphaSiftScreenResponse = {
 };
 
 export function notifyAlphaSiftConfigChanged(): void {
-  window.dispatchEvent(new Event('alphasift-config-changed'));
+  window.dispatchEvent(new Event(ALPHASIFT_CONFIG_CHANGED_EVENT));
+  notifySystemConfigChanged();
+}
+
+export function notifySystemConfigChanged(): void {
+  window.dispatchEvent(new Event(SYSTEM_CONFIG_CHANGED_EVENT));
+}
+
+async function setAlphaSiftEnabled(value: 'true' | 'false'): Promise<void> {
+  const config = await systemConfigApi.getConfig(false);
+  await systemConfigApi.update({
+    configVersion: config.configVersion,
+    maskToken: config.maskToken,
+    reloadNow: true,
+    items: [{ key: 'ALPHASIFT_ENABLED', value }],
+  });
+  notifyAlphaSiftConfigChanged();
 }
 
 export const alphasiftApi = {
@@ -118,14 +136,19 @@ export const alphasiftApi = {
   },
 
   async enable(): Promise<void> {
-    const config = await systemConfigApi.getConfig(false);
-    await systemConfigApi.update({
-      configVersion: config.configVersion,
-      maskToken: config.maskToken,
-      reloadNow: true,
-      items: [{ key: 'ALPHASIFT_ENABLED', value: 'true' }],
-    });
-    notifyAlphaSiftConfigChanged();
-    await alphasiftApi.install();
+    await setAlphaSiftEnabled('true');
+    try {
+      const status = await alphasiftApi.getStatus();
+      if (!status.available) {
+        await alphasiftApi.install();
+      }
+    } catch (error) {
+      try {
+        await setAlphaSiftEnabled('false');
+      } catch {
+        // Preserve the original install/status failure for the caller.
+      }
+      throw error;
+    }
   },
 };

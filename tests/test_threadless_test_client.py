@@ -1,6 +1,9 @@
 # -*- coding: utf-8 -*-
 """Regression tests for the local TestClient compatibility shim."""
 
+from contextvars import ContextVar
+
+import anyio.to_thread
 from fastapi import FastAPI, Request, Response
 from fastapi.testclient import TestClient as FastAPITestClient
 
@@ -74,3 +77,13 @@ def test_threadless_test_client_does_not_run_lifespan_without_context() -> None:
     assert lifecycle_calls["startup"] == 0
     assert lifecycle_calls["shutdown"] == 0
     assert lifecycle_calls["requests"] == 2
+
+
+def test_anyio_to_thread_shim_preserves_contextvars() -> None:
+    request_id = ContextVar("request_id", default="")
+    request_id.set("req-123")
+
+    async def read_from_worker() -> str:
+        return await anyio.to_thread.run_sync(request_id.get)
+
+    assert anyio.run(read_from_worker) == "req-123"
