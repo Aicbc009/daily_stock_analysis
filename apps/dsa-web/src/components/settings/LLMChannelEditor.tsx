@@ -194,10 +194,34 @@ function parseChannelFieldKeysFromName(name: string): string[] {
   return CHANNEL_FIELD_SUFFIXES.map((suffix) => `LLM_${upperName}_${suffix}`);
 }
 
+function isChannelSecretFieldKey(key: string): boolean {
+  const match = CHANNEL_FIELD_KEY_PATTERN.exec(key.toUpperCase());
+  return match?.[2] === 'API_KEY' || match?.[2] === 'API_KEYS';
+}
+
+function resolveInitialChannelApiKeySource(
+  channelName: string,
+  initialItemValueByKey: Map<string, string>,
+  initialItemSourceByKey: Map<string, boolean>,
+): boolean | undefined {
+  const upperName = channelName.trim().toUpperCase();
+  const apiKeysKey = `LLM_${upperName}_API_KEYS`;
+  const apiKeyKey = `LLM_${upperName}_API_KEY`;
+
+  if ((initialItemValueByKey.get(apiKeysKey) || '').trim()) {
+    return initialItemSourceByKey.get(apiKeysKey);
+  }
+  if ((initialItemValueByKey.get(apiKeyKey) || '').trim()) {
+    return initialItemSourceByKey.get(apiKeyKey);
+  }
+  return initialItemSourceByKey.get(apiKeysKey) ?? initialItemSourceByKey.get(apiKeyKey);
+}
+
 function buildChangedItemKeys(
   channels: ChannelConfig[],
   initialChannels: ChannelConfig[],
   initialItemSourceByKey: Map<string, boolean>,
+  initialItemValueByKey: Map<string, string>,
 ): Set<string> {
   const changedKeys = new Set<string>();
   const nextChannelNames = channels.map((channel) => channel.name.trim().toLowerCase()).join(',');
@@ -235,6 +259,12 @@ function buildChangedItemKeys(
     const currentName = current.name.trim().toUpperCase();
     const previousName = previous.name.trim().toUpperCase();
     if (currentName !== previousName) {
+      const previousApiKeySource = resolveInitialChannelApiKeySource(
+        previous.name,
+        initialItemValueByKey,
+        initialItemSourceByKey,
+      );
+      const preserveRuntimeOnlySecret = previousApiKeySource === false && current.apiKey === previous.apiKey;
       const previousKeys = parseChannelFieldKeys(previous);
       for (const key of previousKeys) {
         if (initialItemSourceByKey.get(key.toUpperCase()) !== false) {
@@ -243,6 +273,9 @@ function buildChangedItemKeys(
       }
 
       for (const key of parseChannelFieldKeys(current)) {
+        if (preserveRuntimeOnlySecret && isChannelSecretFieldKey(key)) {
+          continue;
+        }
         changedKeys.add(key);
       }
       continue;
@@ -1572,15 +1605,20 @@ export const LLMChannelEditor: React.FC<LLMChannelEditorProps> = ({
 
     try {
       const changedKeys = new Set<string>([
-        ...buildChangedItemKeys(channels, initialChannels, initialItemSourceByKey),
+        ...buildChangedItemKeys(channels, initialChannels, initialItemSourceByKey, savedItemMap),
         ...runtimeConfigChangedKeys(runtimeConfigForSave, initialRuntimeConfig),
       ]);
       const updateItems = channelsToUpdateItems(channels, initialNames, runtimeConfigForSave, managesRuntimeConfig).filter(
         (item) => {
-          if (initialItemSourceByKey.get(item.key.toUpperCase()) !== false) {
-            return true;
+          const itemKey = item.key.toUpperCase();
+          const initialItemSource = initialItemSourceByKey.get(itemKey);
+          if (initialItemSource === false) {
+            return changedKeys.has(itemKey);
           }
-          return changedKeys.has(item.key.toUpperCase());
+          if (isChannelSecretFieldKey(itemKey) && initialItemSource === undefined) {
+            return changedKeys.has(itemKey);
+          }
+          return true;
         },
       );
       const response = await systemConfigApi.update({
